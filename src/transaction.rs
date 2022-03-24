@@ -29,7 +29,7 @@ use crate::common::Result;
 use crate::rpc;
 use crate::rpc::builder::transaction::{client_msg, open_req, commit_req, stream_req, rollback_req};
 use crate::rpc::client::RpcClient;
-use crate::query::QueryManager;
+// use crate::query::QueryManager;
 
 #[derive(Copy, Clone)]
 pub enum Type {
@@ -46,24 +46,34 @@ impl From<Type> for Transaction_Type {
     }
 }
 
+#[derive(Clone)]
 pub struct Transaction {
     pub transaction_type: Type,
-    bidi_stream: Arc<Mutex<rpc::transaction::BidiStream>>,
-    pub query: QueryManager,
+    pub(crate) bidi_stream: rpc::transaction::BidiStream,
+    // pub query: QueryManager,
 }
 
 impl Transaction {
     // TODO: check if these borrows hamper ability to open transactions in parallel
     pub(crate) async fn new(session_id: &Vec<u8>, transaction_type: Type, network_latency_millis: u32, rpc_client: &RpcClient) -> Result<Self> {
         let open_req = open_req(session_id.clone(), Transaction_Type::from(transaction_type), network_latency_millis);
-        let bidi_stream: Arc<Mutex<rpc::transaction::BidiStream>> = Arc::new(Mutex::new(rpc::transaction::BidiStream::new(rpc_client).await?));
-        Arc::clone(&bidi_stream).lock().unwrap().single_rpc(open_req).await?;
+        let mut bidi_stream = rpc::transaction::BidiStream::new(rpc_client).await?;
+        bidi_stream.single_rpc(open_req).await?;
         Ok(Transaction {
             transaction_type,
-            bidi_stream: Arc::clone(&bidi_stream),
-            query: QueryManager::new(Arc::clone(&bidi_stream))
+            bidi_stream,
+            // query: QueryManager::new(Arc::clone(&bidi_stream))
         })
     }
+
+    // pub async fn test(&self) {
+    //     let bidi_stream1 = Arc::clone(&self.bidi_stream);
+    //     ::std::thread::spawn(move || {
+    //         async {
+    //             bidi_stream1.test();
+    //         };
+    //     });
+    // }
 
     pub async fn commit(&mut self) -> Result<Transaction_Res> {
         self.single_rpc(commit_req()).await
@@ -74,10 +84,10 @@ impl Transaction {
     }
 
     pub(crate) async fn single_rpc(&mut self, mut req: Transaction_Req) -> Result<Transaction_Res> {
-        self.bidi_stream.lock().unwrap().single_rpc(req).await
+        self.bidi_stream.single_rpc(req).await
     }
 
     pub(crate) async fn streaming_rpc(&mut self, mut req: Transaction_Req) -> Result<Vec<Transaction_ResPart>> {
-        self.bidi_stream.lock().unwrap().streaming_rpc(req).await
+        self.bidi_stream.streaming_rpc(req).await
     }
 }

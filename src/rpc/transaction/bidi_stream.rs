@@ -31,23 +31,35 @@ use crate::common::Result;
 use crate::rpc::builder::transaction::{client_msg, stream_req};
 use crate::rpc::client::RpcClient;
 
+#[derive(Clone)]
 pub(crate) struct BidiStream {
-    req_sink: Arc<Mutex<ClientRequestSink<Transaction_Client>>>,
-    res_stream: Arc<Mutex<GrpcStream<Transaction_Server>>>,
+    req_sink: ClientRequestSink<Transaction_Client>,
+    res_stream: GrpcStream<Transaction_Server>,
 }
 
 impl BidiStream {
     pub(crate) async fn new(rpc_client: &RpcClient) -> Result<Self> {
         let (req_sink, streaming_res): (ClientRequestSink<Transaction_Client>, StreamingResponse<Transaction_Server>) = rpc_client.transaction().await?;
         let res_stream = streaming_res.drop_metadata();
-        Ok(BidiStream { req_sink: Arc::new(Mutex::new(req_sink)), res_stream: Arc::new(Mutex::new(res_stream)) })
+        Ok(BidiStream { req_sink, res_stream })
     }
 
-    pub(crate) async fn single_rpc(&self, mut req: Transaction_Req) -> Result<Transaction_Res> {
+    // pub async fn test(&self) {
+    //     let req_sink1 = Arc::clone(&self.req_sink);
+    //     let res_stream1 = Arc::clone(&self.res_stream);
+    //     ::std::thread::spawn(move || {
+    //         async {
+    //             req_sink1.lock().unwrap().send_data(client_msg(vec![]));
+    //             println!("{:?}", res_stream1.lock().unwrap().next().await);
+    //         };
+    //     });
+    // }
+
+    pub(crate) async fn single_rpc(&mut self, mut req: Transaction_Req) -> Result<Transaction_Res> {
         req.req_id = Uuid::new_v4().as_bytes().to_vec();
-        self.req_sink.lock().unwrap().send_data(client_msg(vec![req])).map_err(|err| Error::from_grpc(err))?;
+        self.req_sink.send_data(client_msg(vec![req])).map_err(|err| Error::from_grpc(err))?;
         // TODO: use of unwrap()
-        match self.res_stream.lock().unwrap().next().await {
+        match self.res_stream.next().await {
             Some(Ok(message)) => { println!("{:?}", message.clone()); Ok(message.clone().take_res()) },
             Some(Err(err)) => { println!("{:?}", err); Err(Error::from_grpc(err)) },
             None => { println!("Response stream is empty"); Err(ERRORS.client.transaction_closed.to_err(vec![])) }
@@ -57,9 +69,9 @@ impl BidiStream {
     pub(crate) async fn streaming_rpc(&mut self, mut req: Transaction_Req) -> Result<Vec<Transaction_ResPart>> {
         let req_id = Uuid::new_v4().as_bytes().to_vec();
         req.req_id = req_id.clone();
-        self.req_sink.lock().unwrap().send_data(client_msg(vec![req])).map_err(|err| Error::from_grpc(err))?;
+        self.req_sink.send_data(client_msg(vec![req])).map_err(|err| Error::from_grpc(err))?;
         let mut res_parts: Vec<Transaction_ResPart> = vec![];
-        while let res = self.res_stream.lock().unwrap().next().await {
+        while let res = self.res_stream.next().await {
             match res {
                 Some(Ok(message)) => {
                     println!("{:?}", message.clone());
@@ -70,7 +82,7 @@ impl BidiStream {
                             if res_part.has_stream_res_part() {
                                 match res_part.take_stream_res_part().state {
                                     CONTINUE => {
-                                        self.req_sink.lock().unwrap().send_data(client_msg(vec![stream_req(req_id.clone())]));
+                                        self.req_sink.send_data(client_msg(vec![stream_req(req_id.clone())]));
                                     }
                                     DONE => { break }
                                 }
@@ -93,6 +105,6 @@ impl BidiStream {
 
 impl Drop for BidiStream {
     fn drop(&mut self) {
-        self.req_sink.lock().unwrap().finish().unwrap()
+        self.req_sink.finish().unwrap()
     }
 }

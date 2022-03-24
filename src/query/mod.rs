@@ -30,41 +30,70 @@ use crate::common::error::ERRORS;
 use crate::common::Result;
 use crate::rpc::builder::query_manager::{match_req, query_manager_req};
 use crate::rpc::transaction::bidi_stream::BidiStream;
+use crate::transaction::Transaction;
 
-pub struct QueryManager {
-    bidi_stream: Arc<Mutex<BidiStream>>
+// pub struct QueryManager {
+//     bidi_stream: Arc<BidiStream>
+// }
+//
+// impl QueryManager {
+//     pub(crate) fn new(bidi_stream: Arc<BidiStream>) -> QueryManager {
+//         QueryManager { bidi_stream }
+//     }
+//
+//     pub async fn match_query(&mut self, query: &str) -> Result<Vec<QueryManager_Match_ResPart>> {
+//         let res_parts: Vec<QueryManager_ResPart> = self.streaming_rpc(match_req(query)).await?;
+//         let mut match_res_parts: Vec<QueryManager_Match_ResPart> = vec![];
+//         for res_part in res_parts {
+//             let res = res_part.res
+//                 .ok_or_else(|| ERRORS.client.missing_response_field.to_err(vec!["query_manager_res_part.res"]))?;
+//             match res {
+//                 match_res_part(x) => { match_res_parts.push(x) }
+//                 _ => { return Err(ERRORS.client.missing_response_field.to_err(vec!["query_manager_res_part.match_res_part"])) }
+//             }
+//         };
+//         Ok(match_res_parts)
+//     }
+//
+//     async fn streaming_rpc(&mut self, req: Transaction_Req) -> Result<Vec<QueryManager_ResPart>> {
+//         let tx_res_parts = self.bidi_stream.streaming_rpc(req).await?;
+//         let mut query_mgr_res_parts: Vec<QueryManager_ResPart> = vec![];
+//         for tx_res_part in tx_res_parts {
+//             let res_part = tx_res_part.res
+//                 .ok_or_else(|| ERRORS.client.missing_response_field.to_err(vec!["res_part.res"]))?;
+//             match res_part {
+//                 query_manager_res_part(x) => { query_mgr_res_parts.push(x) },
+//                 _ => { return Err(ERRORS.client.missing_response_field.to_err(vec!["res_part.query_manager_res_part"])) }
+//             }
+//         }
+//         Ok(query_mgr_res_parts)
+//     }
+// }
+
+pub async fn match_query(mut tx: Transaction, query: &str) -> Result<Vec<QueryManager_Match_ResPart>> {
+    let res_parts: Vec<QueryManager_ResPart> = streaming_rpc(tx, match_req(query)).await?;
+    let mut match_res_parts: Vec<QueryManager_Match_ResPart> = vec![];
+    for res_part in res_parts {
+        let res = res_part.res
+            .ok_or_else(|| ERRORS.client.missing_response_field.to_err(vec!["query_manager_res_part.res"]))?;
+        match res {
+            match_res_part(x) => { match_res_parts.push(x) }
+            _ => { return Err(ERRORS.client.missing_response_field.to_err(vec!["query_manager_res_part.match_res_part"])) }
+        }
+    };
+    Ok(match_res_parts)
 }
 
-impl QueryManager {
-    pub(crate) fn new(bidi_stream: Arc<Mutex<BidiStream>>) -> QueryManager {
-        QueryManager { bidi_stream }
-    }
-
-    pub async fn match_query(&mut self, query: &str) -> Result<Vec<QueryManager_Match_ResPart>> {
-        let res_parts: Vec<QueryManager_ResPart> = self.streaming_rpc(match_req(query)).await?;
-        let mut match_res_parts: Vec<QueryManager_Match_ResPart> = vec![];
-        for res_part in res_parts {
-            let res = res_part.res
-                .ok_or_else(|| ERRORS.client.missing_response_field.to_err(vec!["query_manager_res_part.res"]))?;
-            match res {
-                match_res_part(x) => { match_res_parts.push(x) }
-                _ => { return Err(ERRORS.client.missing_response_field.to_err(vec!["query_manager_res_part.match_res_part"])) }
-            }
-        };
-        Ok(match_res_parts)
-    }
-
-    async fn streaming_rpc(&mut self, req: Transaction_Req) -> Result<Vec<QueryManager_ResPart>> {
-        let tx_res_parts = self.bidi_stream.lock().unwrap().streaming_rpc(req).await?;
-        let mut query_mgr_res_parts: Vec<QueryManager_ResPart> = vec![];
-        for tx_res_part in tx_res_parts {
-            let res_part = tx_res_part.res
-                .ok_or_else(|| ERRORS.client.missing_response_field.to_err(vec!["res_part.res"]))?;
-            match res_part {
-                query_manager_res_part(x) => { query_mgr_res_parts.push(x) },
-                _ => { return Err(ERRORS.client.missing_response_field.to_err(vec!["res_part.query_manager_res_part"])) }
-            }
+async fn streaming_rpc(mut tx: Transaction, req: Transaction_Req) -> Result<Vec<QueryManager_ResPart>> {
+    let tx_res_parts = tx.bidi_stream.streaming_rpc(req).await?;
+    let mut query_mgr_res_parts: Vec<QueryManager_ResPart> = vec![];
+    for tx_res_part in tx_res_parts {
+        let res_part = tx_res_part.res
+            .ok_or_else(|| ERRORS.client.missing_response_field.to_err(vec!["res_part.res"]))?;
+        match res_part {
+            query_manager_res_part(x) => { query_mgr_res_parts.push(x) },
+            _ => { return Err(ERRORS.client.missing_response_field.to_err(vec!["res_part.query_manager_res_part"])) }
         }
-        Ok(query_mgr_res_parts)
     }
+    Ok(query_mgr_res_parts)
 }
